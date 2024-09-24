@@ -2,6 +2,7 @@ from pydantic import BaseModel, field_validator
 
 from message.mangomodel import Message
 from notification.schemas import NotificationModel
+from account.schemas import UserModel
 
 valid_operation = ("new_msg", "change_msg_status")
 
@@ -9,11 +10,13 @@ valid_operation = ("new_msg", "change_msg_status")
 class WebsocketMsgResponse(BaseModel):
     msg_type: str
     msg: list[Message]
+    sender_user: UserModel
 
 
 class WebsocketNotificationResponse(BaseModel):
     msg_type: str = "notification"
     msg: NotificationModel
+    sender_user: UserModel
 
 
 class WebsocketMsg(BaseModel):
@@ -23,6 +26,7 @@ class WebsocketMsg(BaseModel):
     sender_id: int
     message_text: str | None
     messages: list["RecievedMsg"] | None
+    sender_user: UserModel
 
     @field_validator("type")
     @classmethod

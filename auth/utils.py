@@ -12,7 +12,6 @@ from .exceptions import (
     AccountBlockedException,
     AuthException,
     InvalidTokenException,
-    UserNotFoundException,
     IncorrectCredentialsException,
 )
 from .mangomodel import (
@@ -33,9 +32,7 @@ def check_account_status(acc_status: str):
 
 async def authenticate_user(db: AsyncSession, username: str, password: str):
     user = (await UserQuery(db, {"username": username}).get_data()).one_or_none()
-    if not user:
-        raise UserNotFoundException()
-    if not bcrypt_context.verify(password, user.hashed_password):
+    if not user or not bcrypt_context.verify(password, user.hashed_password):
         raise IncorrectCredentialsException()
     return user
 

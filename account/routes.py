@@ -241,7 +241,9 @@ async def request_user_for_friend(
     )
 
     if second_user.id in main_connections:
-        await main_connections[second_user.id].send_notification(notification_model)
+        await main_connections[second_user.id].send_notification(
+            notification_model, notification_user
+        )
 
     await db.commit()
 
@@ -349,7 +351,7 @@ async def unblock_user(
     request: Request, db: asyncdb_dependency, mangodb: mangodb_dependency, user_id: int
 ):
     main_user = await UserQuery.one(db, request.user.id)
-    second_user = await UserQuery.one(db, user_id)
+    second_user = await UserQuery.one(db, user_id, False)
 
     if second_user not in main_user.blocked_user:
         raise HTTPException(detail="user is not in your blocked list", status_code=403)

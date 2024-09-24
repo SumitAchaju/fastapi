@@ -15,9 +15,8 @@ from .schema import (
     MainWebsocketMsg,
     WebsocketNotificationResponse,
 )
-from notification.models import Notification
-from account.schemas import UserModel
-from notification.schemas import NotificationModel
+
+from notification.schemas import NotificationModel, UserModel
 
 main_connections: dict[str, "MainConnectionManager"] = {}
 connections: dict[str, "RoomManager"] = {}
@@ -54,12 +53,12 @@ class MainConnectionManager:
                 msg.messages, msg.status, msg.sender_id
             )
             msg_response = WebsocketMsgResponse(
-                msg_type="change_msg_status", msg=messages
+                msg_type="change_msg_status", msg=messages, sender_user=msg.sender_user
             )
             await main_connections[msg.reciever_id].send_msg(msg_response)
 
-    async def send_notification(self, msg: NotificationModel):
-        msg_response = WebsocketNotificationResponse(msg=msg)
+    async def send_notification(self, msg: NotificationModel, sender_user: UserModel):
+        msg_response = WebsocketNotificationResponse(msg=msg, sender_user=sender_user)
         await self.send_msg(msg_response)
 
 
@@ -111,17 +110,21 @@ class RoomManager:
 
         if msg.type == "new_msg":
             message = await self.save_message(msg)
-            await self.broadcast(message, msg.type)
+            await self.broadcast(message, msg.type, msg.sender_user)
             return
 
         elif msg.type == "change_msg_status":
             message = await self.change_msg_status(
                 msg.messages, msg.status, msg.sender_id
             )
-            await self.broadcast(message, msg.type)
+            await self.broadcast(message, msg.type, msg.sender_user)
 
-    async def broadcast(self, msg: list[Message], msg_type: str):
-        msg_response = WebsocketMsgResponse(msg_type=msg_type, msg=msg)
+    async def broadcast(
+        self, msg: list[Message], msg_type: str, sender_user: UserModel
+    ):
+        msg_response = WebsocketMsgResponse(
+            msg_type=msg_type, msg=msg, sender_user=sender_user
+        )
 
         # send msg to online user who are not connected in room
         for user in [
