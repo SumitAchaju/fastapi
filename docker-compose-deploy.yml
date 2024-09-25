@@ -10,8 +10,6 @@ services:
   nginx:
     container_name: nginx
     build: nginx/
-    ports:
-      - 80:80
     restart: always
     volumes:
       - type: volume
@@ -22,8 +20,6 @@ services:
     container_name: mango
     image: mongo:latest
     restart: always
-    ports:
-      - 27017:27017
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: hard
@@ -36,8 +32,6 @@ services:
     container_name: postgres
     image: postgres:alpine
     restart: always
-    ports:
-      - 5432:5432
     environment:
       - POSTGRES_PASSWORD=hard
       - POSTGRES_USER=main
