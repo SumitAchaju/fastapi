@@ -163,6 +163,7 @@ async def get_room_friend(
 
     friend_users_query = select(User).filter(User.id.in_(friend_user_id))
     friend_users = (await db.scalars(friend_users_query)).unique().all()
-    if room.type == "friend":
-        return friend_users[0]
+    if friend_users:
+        if room.type == "friend":
+            return friend_users[0]
     return friend_users
