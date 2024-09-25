@@ -155,6 +155,8 @@ async def get_room_friend(
         raise HTTPException(detail="invalid room id", status_code=403)
 
     room = await mangodb.find_one(ChatRoom, ChatRoom.id == room_object_id)
+    if request.user.id not in [usr.user_id for usr in room.users]:
+        raise HTTPException(detail="user not in room", status_code=403)
     friend_user_id = [
         usr.user_id for usr in room.users if usr.user_id != request.user.id
     ]

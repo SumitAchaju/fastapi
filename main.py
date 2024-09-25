@@ -57,7 +57,7 @@ app.include_router(messageRoutes.router)
 app.include_router(notificationRoutes.router)
 app.include_router(wsroutes.router)
 
-origins = ["http://localhost:5173", "http://127.0.0.1:8000"]
+origins = ["http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:3000"]
 # noinspection PyTypeChecker
 app.add_middleware(
     CORSMiddleware,

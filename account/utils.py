@@ -44,6 +44,7 @@ async def create_user(db: AsyncSession, user_data: CreateUserRequest):
     try:
         await db.commit()
         await db.refresh(user_model)
+
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(

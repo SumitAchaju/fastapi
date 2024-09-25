@@ -34,6 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from websocket.manager import connections, main_connections
 from notification.models import Notification
 from notification.schemas import NotificationModel
+from message.mangomodel import ChatRoom
 
 
 router = APIRouter(prefix="/account", tags=["account"])
@@ -140,24 +141,32 @@ async def update_password(
     return user
 
 
-@router.post("/delete", status_code=status.HTTP_202_ACCEPTED)
-@require_authentication(is_superuser=True)
+@router.delete("/delete", status_code=status.HTTP_202_ACCEPTED)
+@require_authentication()
 async def delete_user(
     request: Request,
     db: asyncdb_dependency,
-    user_id: str = Query(
-        None, description="list of user sperated with comma example ?user_id=1,2"
-    ),
+    mangodb: mangodb_dependency,
 ):
-    deleted_list = []
-    for i in user_id.split(","):
-        user = await UserQuery.one(db, int(i), False)
-        if user is None:
-            raise UserNotFoundException()
-        await db.delete(user)
-        await db.commit()
-        deleted_list.append(user)
-    return deleted_list
+
+    user = await UserQuery.one(db, request.user.id, False)
+    if user is None:
+        raise UserNotFoundException()
+
+    # close the room if connected and deactive the room
+    rooms = await mangodb.find(ChatRoom, ChatRoom.users.user_id == user.id)
+    for room in rooms:
+        if room.is_active:
+            room.is_active = False
+            await mangodb.commit()
+        if str(room.id) in connections:
+            connections[str(room.id)].set_closed()
+
+            del connections[str(room.id)]
+
+    await db.delete(user)
+    await db.commit()
+    return user
 
 
 @router.get("/add/{user_id}")
@@ -327,11 +336,6 @@ async def block_user(
 
     if is_already_blocked:
         return main_user
-
-    # remove user from all other list
-    for field in ("requested_user", "friend"):
-        if second_user in getattr(main_user, field):
-            getattr(main_user, field).remove(second_user)
 
     main_user.blocked_user.append(second_user)
     await db.commit()
