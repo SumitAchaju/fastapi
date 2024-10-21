@@ -163,7 +163,13 @@ async def get_room_friend(
 
     friend_users_query = select(User).filter(User.id.in_(friend_user_id))
     friend_users = (await db.scalars(friend_users_query)).unique().all()
-    if friend_users:
-        if room.type == "friend":
+    if room.type == "friend":
+        if friend_users:
             return friend_users[0]
+        else:
+            if room.is_active:
+                room.is_active = False
+                await mangodb.save(room)
+            raise HTTPException(detail="friend not found", status_code=404)
+
     return friend_users

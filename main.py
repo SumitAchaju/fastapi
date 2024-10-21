@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import auth.routes as authroutes
@@ -15,7 +15,7 @@ from query import UserQuery
 from auth.middleware import BearerTokenAuthBackend, AuthenticationMiddleware
 from auth.permission import require_authentication
 from database.asyncdb import asyncdb_dependency, sessionmanager
-from database.mangodb import mangodb_dependency, mango_sessionmanager
+from database.mangodb import mango_sessionmanager
 import account.routes as accountRoutes
 import message.routes as messageRoutes
 import notification.routes as notificationRoutes
@@ -73,16 +73,43 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-async def root(request: Request, mangodb: mangodb_dependency):
-    return {"msg": "hello sumit"}
-
-
-@app.get("/users")
-@require_authentication()
-async def read_users(request: Request, db: asyncdb_dependency):
-    results = await UserQuery.all(db)
-    return results
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <html>
+        <head>
+            <title>FastAPI</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                }
+                h1 {
+                    color: #1a73e8;
+                }
+                a {
+                    color: #1a73e8;
+                }
+                .container {
+                    margin: 100px 0;
+                }
+                .container > div {
+                    text-align: center;
+                    padding-bottom: 20px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div>
+                    <h1>FastAPI Hello Chat Application</h1>
+                    <div>
+                        <a href="/docs">API Docs</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+    </html>
+    """
 
 
 @app.get("/getuser/")
