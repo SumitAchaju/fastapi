@@ -130,8 +130,7 @@ class Token:
     ):
         outstanding = await mangodb.find_one(
             OutstandingRefreshToken,
-            OutstandingRefreshToken.user_id == user_id,
-            OutstandingRefreshToken.token == token,
+            (OutstandingRefreshToken.user_id == user_id) & (OutstandingRefreshToken.token == token)
         )
         if outstanding:
             await mangodb.delete(outstanding)

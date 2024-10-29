@@ -2,7 +2,7 @@ from uuid import uuid4
 from PIL import Image
 
 import settings
-from fastapi import APIRouter, Request, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Request, HTTPException, UploadFile, File
 from starlette import status
 
 from auth.utils import Token, bcrypt_context
@@ -153,15 +153,15 @@ async def delete_user(
     if user is None:
         raise UserNotFoundException()
 
-    # close the room if connected and deactive the room
-    rooms = await mangodb.find(ChatRoom, ChatRoom.users.user_id == user.id)
+    # close the room if connected and deactivate the room
+    room_query = {"users": {"$elemMatch": {"user_id": user.id}}}
+    rooms = await mangodb.find(ChatRoom, room_query)
     for room in rooms:
         if room.is_active:
             room.is_active = False
             await mangodb.commit()
         if str(room.id) in connections:
-            connections[str(room.id)].set_closed()
-
+            # close the room
             del connections[str(room.id)]
 
     await db.delete(user)
@@ -311,13 +311,11 @@ async def unfriend_user(
 
     await db.commit()
 
-    # close the room if connected and deactive the room
+    # close the room if connected and deactivate the room
     room = await change_room_status(main_user.id, second_user.id, mangodb, False)
     if room:
         if str(room.id) in connections:
-            connections[str(room.id)].set_closed()
-
-            del connections[str(room.id)]
+            await connections[str(room.id)].close_room()
 
     return main_user
 
@@ -340,11 +338,12 @@ async def block_user(
     main_user.blocked_user.append(second_user)
     await db.commit()
 
-    # close the room if connected and deactive the room
+    # close the room if connected and deactivate the room
     room = await change_room_status(main_user.id, second_user.id, mangodb, False)
     if room:
-        if room.id in connections:
-            connections[room.id].close()
+        if str(room.id) in connections:
+            print("closed room: ", room.id)
+            await connections[str(room.id)].close_room()
 
     return main_user
 
@@ -363,7 +362,9 @@ async def unblock_user(
     main_user.blocked_user.remove(second_user)
     await db.commit()
 
-    await change_room_status(main_user.id, second_user.id, mangodb, True)
+    if second_user in main_user.friend or second_user in main_user.friend_by:
+        if second_user not in main_user.blocked_by:
+            await change_room_status(main_user.id, second_user.id, mangodb, True)
 
     return main_user
 
@@ -373,12 +374,12 @@ async def unblock_user(
 async def search_user(
     request: Request,
     db: asyncdb_dependency,
-    type: str = "",
+    search_type: str = "",
     search: str = "",
     offset: int = 0,
     limit: int = 10,
 ):
-    if type not in ("name", "uid", "contact"):
+    if search_type not in ("name", "uid", "contact"):
         raise HTTPException(
             detail="search type must be in (name, uid, contact)",
             status_code=400,
@@ -386,7 +387,7 @@ async def search_user(
 
     self_user = await UserQuery.one(db, request.user.id)
 
-    if search == "" or type == "":
+    if search == "" or search_type == "":
         stmt = (
             select(User).where(User.id != request.user.id).offset(offset).limit(limit)
         )
@@ -396,7 +397,7 @@ async def search_user(
 
     stmt = select(User)
 
-    if type == "name":
+    if search_type == "name":
         if search.split(" ").__len__() == 1:
             stmt = stmt.where(
                 User.first_name.ilike(f"%{search}%")
@@ -414,7 +415,7 @@ async def search_user(
                 )
             )
 
-    elif type == "uid":
+    elif search_type == "uid":
         stmt = stmt.where(User.uid == search)
     else:
         try:

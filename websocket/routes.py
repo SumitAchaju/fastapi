@@ -1,10 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
-from .manager import RoomManager, MainConnectionManager
-from message.mangomodel import ChatRoom
-from database.mangodb import mangodb_dependency
-from .manager import connections
 from fastapi.websockets import WebSocketState
+
+from .manager import RoomManager, MainConnectionManager, connections
 
 router = APIRouter(prefix="/ws", tags=["ws"])
 

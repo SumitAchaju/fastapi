@@ -18,12 +18,12 @@ from .schema import (
 
 from notification.schemas import NotificationModel, UserModel
 
-main_connections: dict[str, "MainConnectionManager"] = {}
+main_connections: dict[int, "MainConnectionManager"] = {}
 connections: dict[str, "RoomManager"] = {}
 
 
 class MainConnectionManager:
-    def __init__(self, websocket: WebSocket, user_id: str) -> None:
+    def __init__(self, websocket: WebSocket, user_id: int) -> None:
         self.websocket = websocket
         self.user_id = user_id
 
@@ -43,10 +43,11 @@ class MainConnectionManager:
     def disconnect(self):
         main_connections.pop(self.user_id, None)
 
-    async def send_msg(self, msg: WebsocketMsgResponse):
-        await self.websocket.send_json(msg.model_dump_json())
+    async def send_msg(self, msg: WebsocketMsgResponse | WebsocketNotificationResponse):
+        await self.websocket.send_text(msg.model_dump_json())
 
-    async def handle_msg(self, data: str):
+    @staticmethod
+    async def handle_msg(data: str):
         msg = MainWebsocketMsg(**(json.loads(data)))
         if msg.reciever_id in main_connections:
             messages = await RoomManager.change_msg_status(
@@ -65,18 +66,17 @@ class MainConnectionManager:
 class RoomManager:
     def __init__(self, room_name: str):
         self.room = room_name
-        self.connected_users: dict[str, WebSocket] = {}
+        self.connected_users: dict[int, WebSocket] = {}
         self.room_users: list[int] = []
-        self.closed = False
 
     @classmethod
     async def connect(
         cls, websocket: WebSocket, room_id: str
-    ) -> tuple["RoomManager", str] | tuple[None, None]:
+    ) -> tuple["RoomManager | None", int | None]:
         await websocket.accept()
         room = await cls.check_room(room_id)
         if not room:
-            return (None, None)
+            return None, None
         try:
             token = await websocket.receive_text()
             user_id = verify_token(token)
@@ -84,29 +84,34 @@ class RoomManager:
             if room_id in connections:
                 connections[room_id].connected_users[user_id] = websocket
             else:
-                newRoom = cls(room_id)
-                newRoom.room_users = [usr.user_id for usr in room.users]
-                newRoom.connected_users[user_id] = websocket
-                connections[room_id] = newRoom
+                new_room = cls(room_id)
+                new_room.room_users = [usr.user_id for usr in room.users]
+                new_room.connected_users[user_id] = websocket
+                connections[room_id] = new_room
 
             return connections[room_id], user_id
 
         except (WebSocketDisconnect, WebSocketException):
             print("websocket is disconnected")
-            return (None, None)
+            return None, None
 
-    def set_closed(self):
-        self.closed = True
-
-    def disconnect(self, user_id: str):
+    def disconnect(self, user_id: int):
         del self.connected_users[user_id]
-        if len(self.connected_users) == 0:
+        if not self.connected_users:
+            self.delete_room()
+
+    async def close_room(self):
+        for websocket in self.connected_users.values():
+            await websocket.close()
+        self.delete_room()
+
+    def delete_room(self):
+        if self.room in connections:
             del connections[self.room]
 
     async def handle_msg(self, data: str):
         msg = WebsocketMsg(**(json.loads(data)))
-        if self.closed:
-            raise WebSocketDisconnect()
+        print(msg.model_dump_json())
 
         if msg.type == "new_msg":
             message = await self.save_message(msg)
@@ -126,15 +131,15 @@ class RoomManager:
             msg_type=msg_type, msg=msg, sender_user=sender_user
         )
 
-        # send msg to online user who are not connected in room
+        # send a msg to online user who not connected in room.
         for user in [
             usr for usr in self.room_users if usr not in self.connected_users.keys()
         ]:
-            if user in main_connections.keys():
+            if int(user) in main_connections.keys():
                 await main_connections[user].send_msg(msg_response)
 
         for websocket in self.connected_users.values():
-            await websocket.send_json(msg_response.model_dump_json())
+            await websocket.send_text(msg_response.model_dump_json())
 
     @staticmethod
     async def save_message(msg: WebsocketMsg):
@@ -168,6 +173,4 @@ class RoomManager:
             return None
         async with mango_sessionmanager.engine.session() as mangodb:
             room = await mangodb.find_one(ChatRoom, ChatRoom.id == room_object_id)
-            if not room.is_active:
-                return None
-            return room
+            return room if room.is_active else None
