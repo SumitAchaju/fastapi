@@ -89,6 +89,17 @@ class UserModel(BaseModel):
         return v
 
 
+class UserResponse(UserModel):
+    blocked_user: list["UserModel"] | None = None
+    blocked_by: list["UserModel"] | None = None
+
+    friend: list["UserModel"] | None = None
+    friend_by: list["UserModel"] | None = None
+
+    requested_user: list["UserModel"] | None = None
+    requested_by: list["UserModel"] | None = None
+
+
 friend_search_status = ("friend", "requested", "blocked", "requested_by", "none")
 
 

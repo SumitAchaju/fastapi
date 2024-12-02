@@ -1,25 +1,16 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from notification.schemas import NotificationModel, ValidatedNotification
-
+from account.schemas import UserModel
+from notification.schemas import NotificationModel
+from websocket.manager.connections import main_connections
 from notification.models import Notification
 from account.models import User
 
 
-def message_request_data(user: User, title: str):
-    return {
-        "user_id": user.id,
-        "type": "message_request",
-        "title": title,
-        "message": f"{user.first_name} {user.last_name} has {"sent you" if title=="recieved" else "accepted your"} message request",
-    }
+async def send_notification_to_user(notification: Notification, sender_user: User):
+    if notification.receiver_id in main_connections:
+        await main_connections[notification.receiver_id].send_notification(
+            NotificationModel(**notification.__dict__),
+            sender_user=UserModel(**sender_user.__dict__),
+        )
+        return True
 
-
-async def create_notification(db: AsyncSession, **kwargs):
-    notification_model = ValidatedNotification(**kwargs)
-    notification = Notification(**notification_model.model_dump())
-    db.add(notification)
-    await db.commit()
-    await db.refresh(notification)
-    notification_data = NotificationModel(**notification.__dict__)
-    return notification_data
+    return False

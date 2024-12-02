@@ -1,50 +1,61 @@
-from pydantic import BaseModel, field_validator
+from typing import Union, Literal
+
+from pydantic import BaseModel, model_validator
 
 from message.mangomodel import Message
 from notification.schemas import NotificationModel
 from account.schemas import UserModel
 
-valid_operation = ("new_msg", "change_msg_status")
+type EventType = Literal["new_message", "change_message_status", "notification"]
 
 
-class WebsocketMsgResponse(BaseModel):
-    msg_type: str
-    msg: list[Message]
+class WebSocketResponse(BaseModel):
+    event_type: EventType
+    data: list[Message] | list[NotificationModel]
     sender_user: UserModel
 
+    @model_validator(mode="after")
+    def validate_data_type(self):
+        if self.event_type == "notification":
+            if not all(isinstance(item, NotificationModel) for item in self.data):
+                raise ValueError(
+                    "Data must be a list of NotificationModel for 'notification' event_type"
+                )
+        elif self.event_type in ("new_message", "change_message_status"):
+            if not all(isinstance(item, Message) for item in self.data):
+                raise ValueError(
+                    "Data must be a list of Message for 'new_message' or 'change_message_status' event_type"
+                )
 
-class WebsocketNotificationResponse(BaseModel):
-    msg_type: str = "notification"
-    msg: NotificationModel
-    sender_user: UserModel
+        return self
 
 
-class WebsocketMsg(BaseModel):
-    type: str
+class WebsocketRecievedMessage(BaseModel):
+    event_type: EventType
     room_id: str
-    status: str
-    sender_id: int
-    message_text: str | None
-    messages: list["RecievedMsg"] | None
+    data: Union["NewMessageEvent", "ChangeMessageStatusEvent"]
     sender_user: UserModel
 
-    @field_validator("type")
-    @classmethod
-    def validate_msg_type(cls, v: str):
-        if v not in valid_operation:
-            raise ValueError(f"msg type must be in {valid_operation}")
-        return v
+    @model_validator(mode="after")
+    def validate_data_type(self):
+        if self.event_type == "new_message":
+            if not isinstance(self.data, NewMessageEvent):
+                raise ValueError(
+                    "Data must be a NewMessageEvent for 'new_message' event_type"
+                )
+        elif self.event_type == "change_message_status":
+            if not isinstance(self.data, ChangeMessageStatusEvent):
+                raise ValueError(
+                    "Data must be a ChangeMessageStatusEvent for 'change_message_status' event_type"
+                )
+
+        return self
 
 
-class RecievedMsg(BaseModel):
-    id: str
+class NewMessageEvent(BaseModel):
     message_text: str
-    created_at: str
-    message_type: str
-    file_links: list[str] | None
+
+
+class ChangeMessageStatusEvent(BaseModel):
+    message_id_list: list[str]
     status: str
-    seen_by: list[int]
-
-
-class MainWebsocketMsg(WebsocketMsg):
-    reciever_id: int

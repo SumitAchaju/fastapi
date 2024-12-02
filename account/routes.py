@@ -1,23 +1,30 @@
 from uuid import uuid4
-from PIL import Image
 
-import settings
+from PIL import Image
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from starlette import status
 
-from auth.utils import Token, bcrypt_context
+import settings
 from auth.exceptions import UserNotFoundException, IncorrectCredentialsException
 from auth.permission import require_authentication
+from auth.utils import Token, bcrypt_context
+from database.asyncdb import asyncdb_dependency
+from database.mangodb import mangodb_dependency
+from message.mangomodel import ChatRoom
+from notification.models import Notification, NotificationType, json_data_friend_request
+from notification.utils import send_notification_to_user
+from query import UserQuery, NotificationQuery
+from websocket.manager.connections import room_connections
+from .models import User
 from .schemas import (
     CreateUserRequest,
     UpdateUserRequest,
-    UserModel,
     FriendSearch,
     UpdateUsername,
     UpdatePassword,
 )
-from database.asyncdb import asyncdb_dependency
-from database.mangodb import mangodb_dependency
 from .utils import (
     create_user,
     update_user_data,
@@ -27,15 +34,6 @@ from .utils import (
     get_friend_search_res,
     extract_integrity_error,
 )
-from query import UserQuery
-from .models import User
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from websocket.manager import connections, main_connections
-from notification.models import Notification
-from notification.schemas import NotificationModel
-from message.mangomodel import ChatRoom
-
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -160,9 +158,9 @@ async def delete_user(
         if room.is_active:
             room.is_active = False
             await mangodb.commit()
-        if str(room.id) in connections:
+        if str(room.id) in room_connections:
             # close the room
-            del connections[str(room.id)]
+            del room_connections[str(room.id)]
 
     await db.delete(user)
     await db.commit()
@@ -179,7 +177,9 @@ async def add_friend(
     )
 
     if is_already_friend:
-        return main_user
+        raise HTTPException(
+            detail="user is already in your friend list", status_code=403
+        )
 
     if second_user in main_user.blocked_user:
         raise HTTPException(
@@ -192,7 +192,34 @@ async def add_friend(
 
     main_user.requested_by.remove(second_user)
     main_user.friend.append(second_user)
+
+    request_notification = await NotificationQuery(
+        db,
+        {
+            "sender_id": second_user.id,
+            "receiver_id": main_user.id,
+            "notification_type": NotificationType.FRIEND_REQUEST,
+        },
+    ).get_by_jsonB_filter({"is_active": True})
+
+    if request_notification is None:
+        raise HTTPException("invalid request", status_code=400)
+
+    request_notification.extra_data.update({"is_accepted": True})
+    request_notification.extra_data.update({"is_active": False})
+
+    add_friend_notification = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.FRIEND_REQUEST_ACCEPTED,
+        message=f"{main_user.first_name} {main_user.last_name} accepted your friend request",
+    )
+    db.add(add_friend_notification)
+
     await db.commit()
+    await db.refresh(add_friend_notification)
+
+    await send_notification_to_user(add_friend_notification, main_user)
 
     await create_room(
         mangodb=mangodb,
@@ -233,28 +260,19 @@ async def request_user_for_friend(
 
     main_user.requested_user.append(second_user)
 
-    notification = Notification(
-        title="Friend Request",
-        user_id=main_user.id,
-        request_id=second_user.id,
-        type="request",
+    request_notification = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.FRIEND_REQUEST,
         message=f"{main_user.first_name} {main_user.last_name} send you friend request",
+        extra_data=json_data_friend_request,
     )
 
-    db.add(notification)
-    await db.flush()
-
-    notification_user = UserModel(**main_user.__dict__)
-    notification_model = NotificationModel(
-        **notification.__dict__, user=notification_user
-    )
-
-    if second_user.id in main_connections:
-        await main_connections[second_user.id].send_notification(
-            notification_model, notification_user
-        )
-
+    db.add(request_notification)
     await db.commit()
+    await db.refresh(request_notification)
+
+    await send_notification_to_user(request_notification, main_user)
 
     return main_user
 
@@ -263,7 +281,7 @@ async def request_user_for_friend(
 @require_authentication()
 async def cancel_request(request: Request, db: asyncdb_dependency, user_id: int):
     main_user = await UserQuery.one(db, request.user.id)
-    second_user = await UserQuery.one(db, user_id)
+    second_user = await UserQuery.one(db, user_id, False)
 
     if second_user not in main_user.requested_user:
         raise HTTPException(
@@ -272,20 +290,37 @@ async def cancel_request(request: Request, db: asyncdb_dependency, user_id: int)
 
     main_user.requested_user.remove(second_user)
 
-    noti_stmt = (
-        select(Notification)
-        .where(
-            Notification.request_id == second_user.id,
-            Notification.user_id == main_user.id,
-            Notification.type == "request",
-        )
-        .order_by(Notification.id.desc())
+    request_notification = await NotificationQuery(
+        db,
+        {
+            "sender_id": main_user.id,
+            "receiver_id": second_user.id,
+            "notification_type": NotificationType.FRIEND_REQUEST,
+        },
+    ).get_by_jsonB_filter({"is_active": True}, all=True)
+
+    if request_notification is None:
+        raise HTTPException("invalid request", status_code=400)
+
+    for noti in request_notification:
+        noti.extra_data.update({"is_canceled": True})
+        noti.extra_data.update({"is_active": False})
+
+    cancel_notification = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.FRIEND_REQUEST_CANCELED,
+        message=f"{main_user.first_name} {main_user.last_name} canceled friend request",
+        linked_notification_id=(
+            request_notification[0].id if request_notification else None
+        ),
     )
-    notification = await db.scalar(noti_stmt)
-    if notification:
-        notification.is_canceled = True
-        notification.is_active = False
+
+    db.add(cancel_notification)
     await db.commit()
+    await db.refresh(cancel_notification)
+
+    await send_notification_to_user(cancel_notification, main_user)
 
     return main_user
 
@@ -309,13 +344,22 @@ async def unfriend_user(
     else:
         return main_user
 
+    unfriend_notificaiton = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.UNFRIEND,
+        message=f"{main_user.first_name} {main_user.last_name} unfriend you",
+    )
+    db.add(unfriend_notificaiton)
     await db.commit()
+    await db.refresh(unfriend_notificaiton)
+    await send_notification_to_user(unfriend_notificaiton, main_user)
 
     # close the room if connected and deactivate the room
     room = await change_room_status(main_user.id, second_user.id, mangodb, False)
     if room:
-        if str(room.id) in connections:
-            await connections[str(room.id)].close_room()
+        if str(room.id) in room_connections:
+            await room_connections[str(room.id)].close_room()
 
     return main_user
 
@@ -336,14 +380,26 @@ async def block_user(
         return main_user
 
     main_user.blocked_user.append(second_user)
+
+    block_notification = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.BLOCK_FRIEND,
+        message=f"{main_user.first_name} {main_user.last_name} blocked you",
+    )
+    db.add(block_notification)
+
     await db.commit()
+    await db.refresh(block_notification)
+
+    await send_notification_to_user(block_notification, main_user)
 
     # close the room if connected and deactivate the room
     room = await change_room_status(main_user.id, second_user.id, mangodb, False)
     if room:
-        if str(room.id) in connections:
+        if str(room.id) in room_connections:
             print("closed room: ", room.id)
-            await connections[str(room.id)].close_room()
+            await room_connections[str(room.id)].close_room()
 
     return main_user
 
@@ -360,7 +416,17 @@ async def unblock_user(
         raise HTTPException(detail="user is not in your blocked list", status_code=403)
 
     main_user.blocked_user.remove(second_user)
+    unblock_notification = Notification(
+        sender_id=main_user.id,
+        receiver_id=second_user.id,
+        notification_type=NotificationType.UNBLOCK_FRIEND,
+        message=f"{main_user.first_name} {main_user.last_name} unblocked you",
+    )
+    db.add(unblock_notification)
     await db.commit()
+    await db.refresh(unblock_notification)
+
+    await send_notification_to_user(unblock_notification, main_user)
 
     if second_user in main_user.friend or second_user in main_user.friend_by:
         if second_user not in main_user.blocked_by:

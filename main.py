@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import auth.routes as authroutes
 import settings
 import websocket.routes as wsroutes
+from account.schemas import UserModel, UserResponse
 from query import UserQuery
 from auth.middleware import BearerTokenAuthBackend, AuthenticationMiddleware
 from auth.permission import require_authentication
@@ -112,7 +113,7 @@ async def root():
     """
 
 
-@app.get("/getuser/")
+@app.get("/getuser/", response_model=UserResponse)
 @require_authentication()
 async def get_user(
     request: Request,
@@ -121,9 +122,8 @@ async def get_user(
     user_id: int | None = None,
 ):
     if user_id:
-        user = await UserQuery.one(db, user_id)
-        return user
-    if uid:
-        user = await UserQuery.one_by_uid(db, uid)
-        return user
+        return await UserQuery.one(db, user_id)
+    elif uid:
+        return await UserQuery.one_by_uid(db, uid)
+
     return await UserQuery.one(db, request.user.id)

@@ -97,6 +97,10 @@ async def get_user_for_add(
         ):
             is_already_in_operation = True
 
+    elif operation == "friend":
+        if second_user in main_user.friend or second_user in main_user.friend_by:
+            is_already_in_operation = True
+
     elif second_user in getattr(main_user, operation):
         is_already_in_operation = True
 

@@ -8,7 +8,7 @@ from database.base import Base
 class BlockedUser(Base):
     __tablename__ = "BlockedUser"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger,primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     blocked_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE")

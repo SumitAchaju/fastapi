@@ -1,7 +1,9 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 
-from .manager import RoomManager, MainConnectionManager, connections
+from websocket.manager.main_manager import  MainConnectionManager
+from websocket.manager.room_manager import RoomManager
+from websocket.manager.connections import room_connections
 
 router = APIRouter(prefix="/ws", tags=["ws"])
 
@@ -44,7 +46,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 @router.get("/connection")
 async def get_connections():
     result = []
-    for con in connections.values():
+    for con in room_connections.values():
         for key in con.connected_users.keys():
             result.append(str(key))
     return result
