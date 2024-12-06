@@ -18,8 +18,8 @@ SUPER_USER = {"ACCESS_PASSWORD": config["CREATE_SUPERUSER_PASSWORD"]}
 
 # For Token Authentication
 JWT = {
-    "ACCESS_TOKEN_EXPIRES": timedelta(minutes=20),
-    "REFRESH_TOKEN_EXPIRES": timedelta(days=7),
+    "ACCESS_TOKEN_EXPIRES": timedelta(seconds=10),
+    "REFRESH_TOKEN_EXPIRES": timedelta(days=30),
     "SECRET_KEY": config["SECRET_KEY"],
     "ALGORITHM": "HS256",
 }

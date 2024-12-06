@@ -40,8 +40,6 @@ class RoomManager:
                 new_room.connected_users[user_id] = websocket
                 room_connections[room_id] = new_room
 
-            print(f"room connections: {room_connections}")
-
             return room_connections[room_id], user_id
 
         except (WebSocketDisconnect, WebSocketException):

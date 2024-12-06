@@ -20,6 +20,8 @@ from .mangomodel import (
 )
 from settings import JWT
 from odmantic.session import AIOSession
+from odmantic.exceptions import DocumentNotFoundError
+from odmantic import Model
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl="/auth/token")
@@ -35,6 +37,13 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
     if not user or not bcrypt_context.verify(password, user.hashed_password):
         raise IncorrectCredentialsException()
     return user
+
+
+async def token_document_delete(mangodb: AIOSession, document: Model):
+    try:
+        await mangodb.delete(document)
+    except DocumentNotFoundError:
+        raise InvalidTokenException()
 
 
 class Token:
@@ -130,10 +139,11 @@ class Token:
     ):
         outstanding = await mangodb.find_one(
             OutstandingRefreshToken,
-            (OutstandingRefreshToken.user_id == user_id) & (OutstandingRefreshToken.token == token)
+            (OutstandingRefreshToken.user_id == user_id)
+            & (OutstandingRefreshToken.token == token),
         )
         if outstanding:
-            await mangodb.delete(outstanding)
+            await token_document_delete(mangodb, outstanding)
         else:
             raise InvalidTokenException()
 
@@ -148,13 +158,13 @@ class Token:
             OutstandingRefreshToken, OutstandingRefreshToken.user_id == user_id
         )
         for t in outstanding_tokens:
-            await mangodb.delete(t)
+            await token_document_delete(mangodb, t)
 
         blacklisted_tokens = await mangodb.find(
             BlackListedRefreshToken, BlackListedRefreshToken.user_id == user_id
         )
         for t in blacklisted_tokens:
-            await mangodb.delete(t)
+            await token_document_delete(mangodb, t)
 
         return {
             "user_id": user_id,

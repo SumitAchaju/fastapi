@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
-from websocket.manager.connections import main_connections,room_connections
+from websocket.manager.connections import main_connections, room_connections
 from database.asyncdb import asyncdb_dependency
 from query import UserQuery
 from auth.permission import require_authentication
@@ -105,6 +105,14 @@ async def get_chat_history(
     )
 
     return sorted_results
+
+
+@router.get("/initialRoom")
+@require_authentication()
+async def get_initial_room(request: Request, mangodb: mangodb_dependency):
+    query = {"users.user_id": request.user.id}
+    room = await mangodb.find_one(ChatRoom, query, sort=(ChatRoom.created_at.desc(),))
+    return room
 
 
 @router.get("/room/{room_id}")
