@@ -1,5 +1,3 @@
-import logging
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,9 +7,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import auth.routes as authroutes
-import settings
 import websocket.routes as wsroutes
-from account.schemas import UserModel, UserResponse
+from account.schemas import UserResponse
 from query import UserQuery
 from auth.middleware import BearerTokenAuthBackend, AuthenticationMiddleware
 from auth.permission import require_authentication
@@ -21,10 +18,6 @@ import account.routes as accountRoutes
 import message.routes as messageRoutes
 import notification.routes as notificationRoutes
 import json
-
-logging.basicConfig(
-    stream=sys.stdout, level=logging.DEBUG if settings.DEBUG else logging.INFO
-)
 
 
 @asynccontextmanager

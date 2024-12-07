@@ -1,7 +1,6 @@
 import json
-from typing import Optional
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 from account.schemas import UserModel
 from message.utils import change_msg_status
@@ -17,20 +16,17 @@ class MainConnectionManager:
         self.user_id = user_id
 
     @classmethod
-    async def connect(cls, websocket: WebSocket) -> Optional["MainConnectionManager"]:
+    async def connect(cls, websocket: WebSocket) -> "MainConnectionManager":
         await websocket.accept()
-        try:
-            token = await websocket.receive_text()
-            user_id = verify_token(token)
-            con = cls(websocket, user_id)
-            main_connections[user_id] = con
-            return con
-        except WebSocketDisconnect:
-            print("websocket is disconnected")
-            return None
+        token = await websocket.receive_text()
+        user_id = verify_token(token)
+        con = cls(websocket, user_id)
+        main_connections[user_id] = con
+        return con
 
-    def disconnect(self) -> None:
-        main_connections.pop(self.user_id, None)
+    @staticmethod
+    def disconnect(user_id) -> None:
+        main_connections.pop(user_id, None)
 
     async def send_msg(self, msg: WebSocketResponse) -> None:
         await self.websocket.send_text(msg.model_dump_json())

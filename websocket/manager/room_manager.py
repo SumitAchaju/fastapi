@@ -1,7 +1,9 @@
 import json
 
 from anyio import value
-from fastapi import WebSocketDisconnect, WebSocketException, WebSocket
+from fastapi import WebSocketException, WebSocket
+from sqlalchemy import delete
+from starlette import status
 
 from account.schemas import UserModel
 from message.utils import save_new_message, change_msg_status
@@ -23,33 +25,34 @@ class RoomManager:
     @classmethod
     async def connect(
         cls, websocket: WebSocket, room_id: str
-    ) -> tuple["RoomManager | None", int | None]:
+    ) -> tuple["RoomManager", int]:
         await websocket.accept()
         room = await cls.check_room(room_id)
         if not room:
-            return None, None
-        try:
-            token = await websocket.receive_text()
-            user_id = verify_token(token)
+            raise WebSocketException(
+                code=status.WS_1003_UNSUPPORTED_DATA, reason="Invalid room id"
+            )
 
-            if room_id in room_connections:
-                room_connections[room_id].connected_users[user_id] = websocket
-            else:
-                new_room = cls(room_id)
-                new_room.room_users = [usr.user_id for usr in room.users]
-                new_room.connected_users[user_id] = websocket
-                room_connections[room_id] = new_room
+        token = await websocket.receive_text()
+        user_id = verify_token(token)
 
-            return room_connections[room_id], user_id
+        if room_id in room_connections:
+            room_connections[room_id].connected_users[user_id] = websocket
+        else:
+            new_room = cls(room_id)
+            new_room.room_users = [usr.user_id for usr in room.users]
+            new_room.connected_users[user_id] = websocket
+            room_connections[room_id] = new_room
 
-        except (WebSocketDisconnect, WebSocketException):
-            print("websocket is disconnected")
-            return None, None
+        return room_connections[room_id], user_id
 
-    def disconnect(self, user_id: int):
-        del self.connected_users[user_id]
-        if not self.connected_users:
-            self.delete_room()
+    @staticmethod
+    def disconnect(room_id: str, user_id: int):
+        room = room_connections.get(room_id)
+        if room:
+            room.connected_users.pop(user_id, None)
+            if not room.connected_users:
+                room.delete_room()
 
     async def close_room(self):
         for key in self.connected_users.copy().keys():
